@@ -46,7 +46,10 @@
     logos-package-downloader-module.url = "github:logos-co/logos-package-downloader-module/feat/drop-legacy-mode";
     logos-storage-module.url = "github:logos-co/logos-storage-module/v3.0.0";
     logos-package-downloader-module.inputs.storage_module.follows = "logos-storage-module";
-    logos-capability-module.url = "github:logos-co/logos-capability-module/feat/drop-legacy-mode";
+    # Decides peering's remote routes and scopes each import's facade
+    # (capability-module#35); liblogos compiles against the same engine header.
+    logos-capability-module.url = "github:logos-co/logos-capability-module/feat/peering";
+    logos-liblogos.inputs.logos-capability-module.follows = "logos-capability-module";
     logos-modules-state-module.url = "github:logos-co/logos-modules-state-module/feat/drop-legacy-mode";
     logos-package.url = "github:logos-co/logos-package";
     logos-package-manager-ui.url = "github:logos-co/logos-package-manager-ui";
