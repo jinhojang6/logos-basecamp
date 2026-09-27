@@ -6,8 +6,8 @@ import Logos.Theme
 
 // Another runtime asks to pair with this one (peering_module's pairingRequested).
 // A code pairing is accepted only when both screens show the same code; a
-// different code means someone in between. An operator invite is compared by
-// the redeemer's ID, which `logosctl remote pair` prints on the other side.
+// different code means someone in between. A runtime-control invite is compared
+// by the redeemer's ID, which `logosctl remote pair` prints on the other side.
 //
 // Peer strings are plain text. Requests queue; syncWith() drops one answered or
 // expired elsewhere. Escape leaves it pending in Settings -> Peering.
@@ -15,7 +15,7 @@ IntentDialog {
     id: root
     objectName: "pairingRequestDialog"
 
-    // The request on screen: {id, code, peer_name, peer_display_id, role, expires_ms}.
+    // The request on screen: {id, code, peer_name, peer_display_id, uses, expires_ms}.
     readonly property alias request: d.current
     readonly property alias queued: d.queue
 
@@ -46,7 +46,7 @@ IntentDialog {
         if (visible && gone(String(d.current.id || ""))) close()
     }
 
-    title: d.operator ? qsTr("Let another computer operate this runtime?")
+    title: d.runtimeControl ? qsTr("Let another computer operate this runtime?")
                       : qsTr("Pair with another runtime?")
 
     onClosed: {
@@ -59,7 +59,7 @@ IntentDialog {
         property var current: ({})
         property var queue: []
         property var seen: ({})
-        readonly property bool operator: String(current.role || "") === "operator"
+        readonly property bool runtimeControl: (current.uses || []).indexOf("runtime-control") >= 0
 
         function indexIn(list, id) {
             for (let i = 0; i < list.length; ++i)
@@ -105,8 +105,8 @@ IntentDialog {
         LogosText {
             objectName: "pairingRequestBody"
             Layout.fillWidth: true
-            text: d.operator
-                  ? qsTr("%1 asks to operate this runtime: to load, unload and call its modules.")
+            text: d.runtimeControl
+                  ? qsTr("%1 asks to operate this runtime. It may then do what this runtime's remote policy grants it.")
                         .arg(String(d.current.peer_name || qsTr("Another computer")))
                   : qsTr("%1 asks to pair with this Basecamp.")
                         .arg(String(d.current.peer_name || qsTr("Another runtime")))
@@ -118,7 +118,7 @@ IntentDialog {
 
         LogosText {
             objectName: "pairingRequestCode"
-            visible: !d.operator
+            visible: !d.runtimeControl
             Layout.alignment: Qt.AlignHCenter
             text: d.spaced(d.current.code)
             textFormat: Text.PlainText
@@ -132,17 +132,17 @@ IntentDialog {
             objectName: "pairingRequestDisplayId"
             Layout.fillWidth: true
             text: qsTr("ID %1").arg(String(d.current.peer_display_id || ""))
-            font.pixelSize: d.operator ? Theme.typography.primaryText : Theme.typography.secondaryText
-            color: d.operator ? Theme.palette.text : Theme.palette.textSecondary
+            font.pixelSize: d.runtimeControl ? Theme.typography.primaryText : Theme.typography.secondaryText
+            color: d.runtimeControl ? Theme.palette.text : Theme.palette.textSecondary
         }
 
         LogosText {
             Layout.fillWidth: true
-            text: d.operator
+            text: d.runtimeControl
                   ? qsTr("Accept only if you started this from the other computer and it shows the same ID.")
                   : qsTr("Accept only if the other screen shows the same code. Pairing shares nothing by itself: what each side imports is chosen afterwards.")
             font.pixelSize: Theme.typography.secondaryText
-            color: d.operator ? Theme.palette.warning : Theme.palette.textSubtle
+            color: d.runtimeControl ? Theme.palette.warning : Theme.palette.textSubtle
             wrapMode: Text.Wrap
         }
     }
@@ -158,7 +158,7 @@ IntentDialog {
         },
         LogosButton {
             objectName: "pairingRequestAccept"
-            text: d.operator ? qsTr("Same ID, accept") : qsTr("Codes match")
+            text: d.runtimeControl ? qsTr("Same ID, accept") : qsTr("Codes match")
             variant: LogosButton.Variant.Primary
             onClicked: {
                 root.confirmRequested(String(d.current.id))

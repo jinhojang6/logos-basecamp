@@ -65,7 +65,7 @@
                "pairing_window_ms": 0},
     "peers": [
       {"runtime_id": "3f2c1a9e-7b4d-4e8a-9c21-5d6e7f809a1b", "alias": "node", "display_name": "node",
-       "display_id": "B4N8R-2KDQW-7XM3P-LT9VH", "role": "peer", "granted_role": "peer",
+       "display_id": "B4N8R-2KDQW-7XM3P-LT9VH", "uses": ["provider-access"], "granted_uses": ["provider-access"],
        "status": "active", "addresses": ["127.0.0.1"], "control_port": 7443}
     ],
     "pending": [],
@@ -81,6 +81,6 @@
   },
   "pairingRequest": {"id": "c4TQ0nqHb2k", "direction": "incoming", "code": "418093",
                      "peer_name": "Basecamp on laptop", "peer_display_id": "P3V7K-9MWQD-2XT8B-RN4HC",
-                     "peer_runtime_id": "8d1e5c2a-4f6b-4a9e-b3c7-1e2d3f4a5b6c", "role": "peer",
+                     "peer_runtime_id": "8d1e5c2a-4f6b-4a9e-b3c7-1e2d3f4a5b6c", "uses": ["provider-access"],
                      "needs_approval": true, "expires_ms": 240000}
 }

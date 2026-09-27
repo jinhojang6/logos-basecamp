@@ -15,7 +15,7 @@ TestCase {
 
     function request(id, extra) {
         var r = { id: id, direction: "incoming", code: "418093", peer_name: "Basecamp on laptop",
-                  peer_display_id: "P3V7K-9MWQD-2XT8B-RN4HC", role: "peer",
+                  peer_display_id: "P3V7K-9MWQD-2XT8B-RN4HC", uses: ["provider-access"],
                   needs_approval: true, expires_ms: 60000 }
         for (var k in extra) r[k] = extra[k]
         return r
@@ -98,9 +98,9 @@ TestCase {
         tryVerify(function () { return !dlg.visible }, 5000, "answered or expired elsewhere")
     }
 
-    function test_an_operator_request_is_compared_by_id() {
+    function test_a_runtime_control_request_is_compared_by_id() {
         var dlg = createTemporaryObject(dialogComp, testCase)
-        dlg.openWith(request("op", { role: "operator" }))
+        dlg.openWith(request("rc", { uses: ["provider-access", "runtime-control"] }))
         waitForRendering(testCase)
         verify(!deepFind(dlg.contentItem, "pairingRequestCode").visible, "no code to compare")
         compare(button(dlg, "pairingRequestAccept").text, "Same ID, accept")
