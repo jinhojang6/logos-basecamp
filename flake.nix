@@ -84,6 +84,8 @@
     # peering_module, peering_identity and the facade host, logos_host_remote.
     logos-peering.url = "github:logos-co/logos-peering";
     logos-peering.inputs.logos-nix.follows = "logos-nix";
+    # One libpeering source: liblogos builds its in-process facades from it.
+    logos-liblogos.inputs.logos-peering.follows = "logos-peering";
   };
 
   nixConfig = {
