@@ -201,6 +201,17 @@ void PackageCoordinator::subscribeToPackageDownloaderEvents()
                                                data.at(1).toULongLong(),
                                                data.at(2).toULongLong());
     });
+
+    // Which transport served a package, `logos:<cid>` or the https url. Payload
+    // is [packageName, source]. Logged only: nothing shows it yet.
+    logos.package_downloader.on("downloadDone", [](const QVariantList& data) {
+        if (data.size() < 2) {
+            qWarning() << "PackageCoordinator: package_downloader.downloadDone "
+                          "expected [name, source], got" << data.size() << "args";
+            return;
+        }
+        qInfo() << "Downloaded" << data.at(0).toString() << "from" << data.at(1).toString();
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -2002,7 +2013,7 @@ void PackageCoordinator::installDownloadedFile(const QVariantMap& dl,
     // indistinguishable from a provider that legitimately returned an empty
     // one. AsyncResult<T> carries the value and the error together, which is
     // the whole reason it exists.
-    logos.package_manager.installPluginAsyncResult(filePath, false,
+    logos.package_manager.installPluginAsyncResult(filePath, false, dl.value("source").toString(),
         [self, packageName, onDone](logos::AsyncResult<QVariantMap> r) {
             if (!self) return;
             // Transport-level failure FIRST -- a timeout leaves `value`
