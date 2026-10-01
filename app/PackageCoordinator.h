@@ -1,4 +1,7 @@
 #pragma once
+#include <memory>
+
+namespace logos { class OptionalDependencyPreview; }
 
 #include "InstallEnums.h"
 #include "UninstallPlan.h"
@@ -104,7 +107,7 @@ public:
     // Returns whether the broker accepted the response; false means the
     // dispatch already ended (requester gone, or timed out) and nobody heard.
     using IntentResponder = std::function<bool(const QString& requestId, bool ok,
-                                               const QString& error)>;
+                                               const QString& error, const QVariant& data)>;
     void setIntentResponder(IntentResponder responder)
     { m_intentResponder = std::move(responder); }
 
@@ -122,8 +125,13 @@ public slots:
     // confirm_install intent; PMU then runs the install itself. Basecamp owns
     // no install flow of its own here — every install in the app is initiated
     // by package_manager_ui and confirmed through this gate.
-    Q_INVOKABLE void confirmInstallGate(const QString& name);
+    Q_INVOKABLE void confirmInstallGate(const QString& name, const QStringList& optionalNames = {}, const QVariantMap& optionalVersionPins = {});
     Q_INVOKABLE void cancelInstallGate(const QString& name);
+    Q_INVOKABLE void refreshOptionalPreview(const QString& name, const QString& repositoryUrl,
+                                           const QVariantMap& versionPins,
+                                           const QVariantMap& optionalSelection,
+                                           const QVariantMap& optionalVersionPins,
+                                           bool installGate = false);
 
     Q_INVOKABLE void openApp(const QString& name,
                              const QString& repositoryUrl,
@@ -131,7 +139,9 @@ public slots:
                              bool allowFastLaunch = true);
     Q_INVOKABLE void confirmCatalogInstall(const QString& name,
                                            const QString& repositoryUrl,
-                                           const QVariantMap& versionPins = QVariantMap());
+                                           const QVariantMap& versionPins = QVariantMap(),
+                                           const QStringList& optionalNames = {},
+                                           const QVariantMap& optionalVersionPins = {});
 
     // Shell-initiated uninstall (Settings → Modules / Apps). These raise the
     // confirm dialog directly — the shell is both asker and decider here, so
@@ -145,7 +155,7 @@ public slots:
     // Cascade confirmation — called from QML once the user OKs the uninstall
     // or upgrade dialog. Unloads, then answers the intent recorded on the
     // pending action (or removes locally when there is none).
-    Q_INVOKABLE void confirmUninstallCascade(const QString& moduleName);
+    Q_INVOKABLE void confirmUninstallCascade(const QString& moduleName, const QStringList& optionalNames = {}, const QVariantMap& optionalVersionPins = {});
 
     // Multi-uninstall counterparts. confirm runs the cascade-unload for every
     // name in the batch, then answers the requester; cancel just answers.
@@ -255,6 +265,7 @@ signals:
                                           const QString& requesterName,
                                           bool requesterBundled,
                                           bool depChangesResolved);
+    void optionalGatePreviewUpdated(const QString& name, const QVariantList& changes, bool pending);
 
     // Repository management — change-notify for the QML-facing cache and
     // an outcome signal for add/remove/toggle (success or error string).
@@ -286,7 +297,14 @@ private:
     // Empty id -> false, no call: that is how a shell-initiated flow is told it
     // owns the removal.
     bool finishIntent(const QString& requestId, bool ok,
-                      const QString& error = QString());
+                      const QString& error = QString(), const QVariant& data = QVariant());
+
+    QVariantList m_pendingOptionalPackages;
+    QString m_pendingPreviewName, m_pendingPreviewRepo, m_pendingPreviewVersion;
+    int m_gatePreviewEpoch = 0;
+    QVariantMap selectedOptionalPackages(const QStringList& names, const QVariantMap& versionPins) const;
+    QVariantMap optionalPackageRow(const QVariantMap& offer) const;
+    QVariantList gatePreviewChanges(const QVariantList& resolved);
 
     IntentResponder m_intentResponder;
 
@@ -416,13 +434,6 @@ private:
     // pick up the new installType / missing-deps values.
     void refreshDependencyInfo();
 
-    // Builds the resolver's depsJson for `name@repositoryUrl` with optional
-    // per-row version pins. The target is row 0; remaining pin rows fall back
-    // to the catalog-known repo from m_repoByName. Empty version/repo fields
-    // are omitted so the resolver uses its newest/cross-repo defaults.
-    QString buildResolverDepsJson(const QString& name,
-                                  const QString& repositoryUrl,
-                                  const QVariantMap& versionPins) const;
     // Transitive required-package set ({name, repositoryUrl}) computed purely
     // from the local catalog dependency graph — no async resolver.
     QVariantList collectCatalogRequired(const QString& name,
@@ -463,9 +474,21 @@ private:
     QString repositoryLabelFor(const QVariantMap& catalogEntry) const;
     static bool installPluginSucceeded(const QVariantMap& installResult);
 
+    bool m_addPreviewPending = false;
     void runResolverAndOpenDialog(const QString& name,
                                   const QString& repositoryUrl,
-                                  const QVariantMap& versionPins);
+                                  const QVariantMap& versionPins,
+                                  const QVariantMap& optionalSelection = {},
+                                  const QVariantMap& optionalVersionPins = {});
+    void resolveOptionalPreview(const QString& name, const QString& repositoryUrl,
+                                const QVariantMap& versionPins, const QVariantMap& selection,
+                                const QVariantMap& optionalPins, const QString& installedJson,
+                                std::function<bool()> current,
+                                std::function<void(QVariantList)> then);
+    void resolveOptionalPreviewPass(std::shared_ptr<logos::OptionalDependencyPreview> preview,
+                                    const QString& request, const QString& installedJson,
+                                    QSet<QString> visited, std::function<bool()> current,
+                                    std::function<void(QVariantList)> then);
     void emitDialogMetadata(const QString& name,
                             const QString& repositoryUrl,
                             const QString& targetVersion,

@@ -145,6 +145,8 @@ MainUIBackend::MainUIBackend(LogosAPI* logosAPI, ICoreRuntime* core, QObject* pa
     // UpgradeMode so a downgrade doesn't look like a bare uninstall.
     connect(m_packageCoordinator, &PackageCoordinator::upgradeCascadeConfirmationRequested,
             this,             &MainUIBackend::upgradeCascadeConfirmationRequested);
+    connect(m_packageCoordinator, &PackageCoordinator::optionalGatePreviewUpdated,
+            this, &MainUIBackend::optionalGatePreviewUpdated);
     connect(m_packageCoordinator, &PackageCoordinator::installGateConfirmationRequested,
             this,             &MainUIBackend::installGateConfirmationRequested);
     connect(m_packageCoordinator, &PackageCoordinator::requestOpenAddApplicationDialog,
@@ -452,8 +454,8 @@ void MainUIBackend::wireIntents()
     // so it never has to know one exists.
     if (m_packageCoordinator) {
         m_packageCoordinator->setIntentResponder(
-            [this](const QString& requestId, bool ok, const QString& error) {
-                return respondToShellIntent(requestId, ok, QVariant(), error);
+            [this](const QString& requestId, bool ok, const QString& error, const QVariant& data) {
+                return respondToShellIntent(requestId, ok, data, error);
             });
     }
 
@@ -835,16 +837,20 @@ void MainUIBackend::uninstallUiModule(const QString& n)       { m_packageCoordin
 void MainUIBackend::uninstallApp(const QString& n, const QString& repositoryUrl)
                                                              { m_packageCoordinator->uninstallApp(n, repositoryUrl); }
 void MainUIBackend::uninstallCoreModule(const QString& n)     { m_packageCoordinator->uninstallCoreModule(n); }
-void MainUIBackend::confirmUninstallCascade(const QString& n) { m_packageCoordinator->confirmUninstallCascade(n); }
+void MainUIBackend::confirmUninstallCascade(const QString& n, const QStringList& optionalNames, const QVariantMap& optionalVersionPins) { m_packageCoordinator->confirmUninstallCascade(n, optionalNames, optionalVersionPins); }
 void MainUIBackend::confirmUninstallMultiCascade(const QStringList& names) { m_packageCoordinator->confirmUninstallMultiCascade(names); }
 void MainUIBackend::cancelMultiUninstall(const QStringList& names)         { m_packageCoordinator->cancelMultiUninstall(names); }
 void MainUIBackend::cancelPendingUninstallApp(const QString& name)         { m_packageCoordinator->cancelPendingUninstallApp(name); }
-void MainUIBackend::confirmInstallGate(const QString& n)      { m_packageCoordinator->confirmInstallGate(n); }
+void MainUIBackend::refreshOptionalPreview(const QString& n, const QString& repo,
+                                            const QVariantMap& pins, const QVariantMap& selection,
+                                            const QVariantMap& optionalPins, bool gate)
+{ m_packageCoordinator->refreshOptionalPreview(n, repo, pins, selection, optionalPins, gate); }
+void MainUIBackend::confirmInstallGate(const QString& n, const QStringList& optionalNames, const QVariantMap& optionalVersionPins) { m_packageCoordinator->confirmInstallGate(n, optionalNames, optionalVersionPins); }
 void MainUIBackend::cancelInstallGate(const QString& n)       { m_packageCoordinator->cancelInstallGate(n); }
 void MainUIBackend::openApp(const QString& name, const QString& repositoryUrl, const QVariantMap& versionPins, bool allowFastLaunch)
 { m_packageCoordinator->openApp(name, repositoryUrl, versionPins, allowFastLaunch); }
-void MainUIBackend::confirmCatalogInstall(const QString& name, const QString& repositoryUrl, const QVariantMap& versionPins)
-{ m_packageCoordinator->confirmCatalogInstall(name, repositoryUrl, versionPins); }
+void MainUIBackend::confirmCatalogInstall(const QString& name, const QString& repositoryUrl, const QVariantMap& versionPins, const QStringList& optionalNames, const QVariantMap& optionalVersionPins)
+{ m_packageCoordinator->confirmCatalogInstall(name, repositoryUrl, versionPins, optionalNames, optionalVersionPins); }
 void MainUIBackend::notifyAddApplicationDialogClosed()
 { m_packageCoordinator->notifyAddApplicationDialogClosed(); }
 

@@ -252,7 +252,7 @@ public slots:
     // UIPluginManager; uninstall/upgrade cascade lives on PackageCoordinator.
     // cancelPendingAction fans out to both so the un-involved one no-ops.
     Q_INVOKABLE void confirmUnloadCascade(const QString& moduleName);
-    Q_INVOKABLE void confirmUninstallCascade(const QString& moduleName);
+    Q_INVOKABLE void confirmUninstallCascade(const QString& moduleName, const QStringList& optionalNames = {}, const QVariantMap& optionalVersionPins = {});
     Q_INVOKABLE void confirmUninstallMultiCascade(const QStringList& moduleNames);
     Q_INVOKABLE void cancelMultiUninstall(const QStringList& moduleNames);
     Q_INVOKABLE void cancelPendingAction(const QString& moduleName);
@@ -265,7 +265,10 @@ public slots:
     // PackageCoordinator, which forwards the decision to the module's
     // confirmInstall / cancelInstall gate. The app's only install
     // confirmation; basecamp initiates no installs of its own.
-    Q_INVOKABLE void confirmInstallGate(const QString& name);
+    Q_INVOKABLE void refreshOptionalPreview(const QString& name, const QString& repositoryUrl,
+                                           const QVariantMap& versionPins, const QVariantMap& selection,
+                                           const QVariantMap& optionalPins, bool installGate = false);
+    Q_INVOKABLE void confirmInstallGate(const QString& name, const QStringList& optionalNames = {}, const QVariantMap& optionalVersionPins = {});
     Q_INVOKABLE void cancelInstallGate(const QString& name);
 
     // App-Manager catalog open — delegated to PackageCoordinator.
@@ -275,7 +278,9 @@ public slots:
                              bool allowFastLaunch = true);
     Q_INVOKABLE void confirmCatalogInstall(const QString& name,
                                            const QString& repositoryUrl,
-                                           const QVariantMap& versionPins = QVariantMap());
+                                           const QVariantMap& versionPins = QVariantMap(),
+                                           const QStringList& optionalNames = {},
+                                           const QVariantMap& optionalVersionPins = {});
     Q_INVOKABLE void notifyAddApplicationDialogClosed();
 
     // Core Module operations — routing rule: cascade-aware (load/unload)
@@ -395,6 +400,7 @@ signals:
     // only the first three, and Qt truncates silently on connect — so the QML
     // handler's requesterName / requesterBundled arrived undefined and the
     // "who asked" line never rendered.
+    void optionalGatePreviewUpdated(const QString& name, const QVariantList& changes, bool pending);
     void installGateConfirmationRequested(const QString& name,
                                           const QString& releaseTag,
                                           const QVariantList& depChanges,

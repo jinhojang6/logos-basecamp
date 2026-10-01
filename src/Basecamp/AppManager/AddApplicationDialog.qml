@@ -16,17 +16,25 @@ Dialog {
     // onCatalogInstallFailed; cleared on each (re)open.
     property string installError: ""
 
-    signal installRequested(string name, string repositoryUrl, var versionPins)
+    signal installRequested(string name, string repositoryUrl, var versionPins, var optionalNames, var optionalVersionPins)
     signal launchRequested(string name)
-    signal versionChangeRequested(string name, string repositoryUrl, var versionPins)
+    signal versionChangeRequested(string name, string repositoryUrl, var versionPins, var optionalSelection, var optionalVersionPins)
     signal uninstallRequested(string name, string repositoryUrl)
 
     function openWith(metadata_) {
         root.metadata = metadata_ || ({})
         d.pickedVersions = ({})
+        d.optionalSelection = ({})
+        d.optionalPickedVersions = ({})
         root.installStage = root.metadata.installStage || InstallStage.None
         root.installError = ""   // clear any stale error from a prior open
         open()
+    }
+
+    function refreshPreview() {
+        root.metadata = Object.assign({}, root.metadata, {resolutionPending: true})
+        root.versionChangeRequested(d.targetName, d.targetRepoUrl, d.buildVersionPins(),
+                                    d.optionalSelection, d.optionalPickedVersions)
     }
 
     function markInstallComplete() {
@@ -56,6 +64,29 @@ Dialog {
         }
 
         property var pickedVersions: ({})
+        property var optionalSelection: ({})
+        property var optionalPickedVersions: ({})
+        readonly property var optionalPackages: root.metadata.optionalPackages || []
+        onOptionalPackagesChanged: {
+            // Required-version changes resolve a new optional set. Keep a
+            // user's choice only while that version is still permitted.
+            var picks = {}
+            d.optionalPackages.forEach(function(p) {
+                const picked = d.optionalPickedVersions[p.name]
+                if (!p.error && picked && (picked === p.version
+                    || (p.versions || []).some(function(v) {
+                        return v && v.manifest && v.manifest.version === picked
+                    })))
+                    picks[p.name] = picked
+            })
+            d.optionalPickedVersions = picks
+        }
+
+        function selectedOptionalNames() {
+            return d.optionalPackages.filter(function(p) {
+                return !p.error && d.optionalSelection[p.name] !== false
+            }).map(function(p) { return p.name })
+        }
 
         // ── Target app derived fields ──
         readonly property string targetName:        root.metadata.name || ""
@@ -92,6 +123,8 @@ Dialog {
             return "install"
         }
         readonly property string actionText: {
+            if (root.metadata.resolutionPending && !d.installing && d.actionMode !== "launch")
+                return qsTr("Checking packages…")
             switch (d.actionMode) {
             case "installing": return d.stageLabel
             case "install":    return qsTr("Install")
@@ -118,7 +151,8 @@ Dialog {
             d.targetName.length > 0
             && !d.installing
             && d.installingBuckets === 0
-            && (d.actionMode === "launch" || !d.hasResolutionErrors)
+            && (d.actionMode === "launch"
+                || (!root.metadata.resolutionPending && !d.hasResolutionErrors))
 
         readonly property int totalDeps:
             root.requiredPackagesModel ? root.requiredPackagesModel.visibleCount : 0
@@ -449,7 +483,8 @@ Dialog {
                             return
                         }
                         root.installRequested(
-                            d.targetName, d.targetRepoUrl, d.buildVersionPins())
+                            d.targetName, d.targetRepoUrl, d.buildVersionPins(), d.selectedOptionalNames(),
+                            d.optionalPickedVersions)
                     }
                     background: Rectangle {
                         radius: Theme.spacing.radiusXlarge
@@ -523,8 +558,62 @@ Dialog {
                     nextPicks[rowName] = newVersion
                     d.pickedVersions = nextPicks
 
-                    root.versionChangeRequested(
-                        d.targetName, d.targetRepoUrl, d.buildVersionPins())
+                    root.refreshPreview()
+                }
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.minimumHeight: optionalHeading.implicitHeight + d.depsRowHeight + spacing
+            visible: d.optionalPackages.length > 0
+            LogosText {
+                id: optionalHeading
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.spacing.large
+                Layout.rightMargin: Theme.spacing.large
+                text: qsTr("Optional Packages")
+                font.pixelSize: Theme.typography.panelTitleText
+                font.weight: Theme.typography.weightMedium
+                color: Theme.palette.text
+            }
+            LogosListView {
+                objectName: "addApplicationDialog.optionalPackages"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.preferredHeight: Math.min(d.optionalPackages.length * d.depsRowHeight,
+                                                 3 * d.depsRowHeight)
+                Layout.maximumHeight: Layout.preferredHeight
+                Layout.minimumHeight: d.depsRowHeight
+                interactive: contentHeight > height
+                clip: true
+                spacing: 0
+                model: d.optionalPackages
+                delegate: PackageRowDelegate {
+                    required property var modelData
+                    width: ListView.view ? ListView.view.width : 0
+                    height: d.depsRowHeight
+                    leftPadding: Theme.spacing.large
+                    rightPadding: Theme.spacing.large
+                    appRow: modelData
+                    installing: d.installing
+                    selectable: true
+                    selectionObjectName: "addApplicationDialog.optional." + modelData.name
+                    selected: !modelData.error && d.optionalSelection[modelData.name] !== false
+                    selectedVersion: d.optionalPickedVersions[modelData.name] || ""
+                    onSelectionToggled: function(checked) {
+                        var selected = Object.assign({}, d.optionalSelection)
+                        selected[modelData.name] = checked
+                        d.optionalSelection = selected
+                        root.refreshPreview()
+                    }
+                    onVersionPicked: function(name, version) {
+                        var picks = Object.assign({}, d.optionalPickedVersions)
+                        picks[name] = version
+                        d.optionalPickedVersions = picks
+                        root.refreshPreview()
+                    }
                 }
             }
         }
