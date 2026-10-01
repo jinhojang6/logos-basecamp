@@ -16,23 +16,42 @@ public:
           m_pins(std::move(pins)), m_selection(std::move(selection)),
           m_optionalPins(std::move(optionalPins)) {}
 
+    // name -> {version, rootHash}. An installed optional defaults to its installed release.
+    void setInstalled(QMap<QString, QPair<QString, QString>> installed) { m_installed = std::move(installed); }
+    // Whether optionals that are not installed start selected.
+    void setSelectNew(bool select) { m_selectNew = select; }
+
+    // The subject plus every required-row pin, so a pin applies even when the
+    // first pass fails; later passes keep only pins that are still mandatory.
     QString initialRequest() const
-    { return gateResolverRequest(m_subject, m_repository, m_pins.value(m_subject).toString()); }
+    {
+        QJsonArray arr{QJsonObject::fromVariantMap(subjectRequest())};
+        for (auto it = m_pins.cbegin(); it != m_pins.cend(); ++it)
+            if (it.key() != m_subject && !it.value().toString().isEmpty())
+                arr.append(QJsonObject{{"name", it.key()}, {"version", it.value().toString()}});
+        return QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
+    }
 
     QString advance(const QVariantList& resolved)
     {
         QVariantMap graph;
         QMap<QString, QVariantMap> rows;
+        // Compare this pass's artifacts per name (a plan may hold two rows of one name).
+        QMap<QString, QStringList> artifacts;
         for (const QVariant& v : resolved) {
             const QVariantMap row = v.toMap();
-            const QString name = row.value("name").toString();
-            const QString artifact = row.value("version").toString() + "|" + row.value("rootHash").toString();
-            if (m_artifacts.contains(name) && m_artifacts.value(name) != artifact) {
+            artifacts[row.value("name").toString()].append(
+                row.value("version").toString() + "|" + row.value("rootHash").toString());
+        }
+        for (auto a = artifacts.begin(); a != artifacts.end(); ++a) {
+            a->sort();
+            const QString artifact = a->join(',');
+            if (m_artifacts.contains(a.key()) && m_artifacts.value(a.key()) != artifact) {
                 for (auto it = m_discovered.begin(); it != m_discovered.end();)
-                    if (it.value().value("requiredBy").toString() == name) it = m_discovered.erase(it);
+                    if (it.value().value("requiredBy").toString() == a.key()) it = m_discovered.erase(it);
                     else ++it;
             }
-            m_artifacts.insert(name, artifact);
+            m_artifacts.insert(a.key(), artifact);
         }
         for (const QVariant& v : resolved) {
             const QVariantMap row = v.toMap();
@@ -63,12 +82,12 @@ public:
             for (const QVariantMap& offer : m_discovered) {
                 if (offer.value("requiredBy").toString() != parent || offer.contains("error")) continue;
                 const QString name = offer.value("name").toString();
-                if (m_selection.value(name, true).toBool()) queue.append(name);
+                if (isSelected(annotate(offer))) queue.append(name);
             }
         }
 
         m_offers.clear();
-        QSet<QString> offered;
+        QMap<QString, int> offered;
         for (auto it = m_discovered.begin(); it != m_discovered.end();) {
             const auto offer = it.value();
             const QString name = offer.value("name").toString();
@@ -76,20 +95,48 @@ public:
                 it = m_discovered.erase(it);
                 continue;
             }
-            if (!mandatory.contains(name) && !offered.contains(name)) {
-                m_offers.append(offer);
-                offered.insert(name);
-            }
             ++it;
+            if (mandatory.contains(name)) continue;
+            const QVariantMap shown = annotate(offer);
+            // One row per name; an available offer wins over an unavailable one.
+            if (!offered.contains(name)) {
+                offered.insert(name, m_offers.size());
+                m_offers.append(shown);
+            } else if (m_offers.at(offered.value(name)).toMap().contains("error") && !offer.contains("error")) {
+                m_offers[offered.value(name)] = shown;
+            }
         }
 
         m_optionalNames.clear();
         for (const QVariant& v : m_offers) {
             const QVariantMap offer = v.toMap();
             const QString name = offer.value("name").toString();
-            if (!offer.contains("error") && m_selection.value(name, true).toBool())
-                m_optionalNames.append(name);
+            if (isSelected(offer)) m_optionalNames.append(name);
         }
+        // Packages that come only with selected optionals, and which optionals need them.
+        auto reachFrom = [&graph](const QString& root) {
+            QSet<QString> seen;
+            QStringList stack{root};
+            while (!stack.isEmpty()) {
+                const QString n = stack.takeLast();
+                if (seen.contains(n)) continue;
+                seen.insert(n);
+                for (const QVariant& dep : graph.value(n).toList()) {
+                    const QString name = dep.typeId() == QMetaType::QString
+                        ? dep.toString() : dep.toMap().value("name").toString();
+                    if (!name.isEmpty()) stack.append(name);
+                }
+            }
+            return seen;
+        };
+        const QSet<QString> own = reachFrom(m_subject);
+        m_requiredFor.clear();
+        for (const QString& root : m_optionalNames)
+            for (const QString& n : reachFrom(root))
+                if (n != root && !own.contains(n) && !m_optionalNames.contains(n)
+                    && !m_requiredFor.value(n).contains(root))
+                    m_requiredFor[n].append(root);
+
         QVariantList optionalRequests;
         for (const QVariant& v : m_offers) {
             const QVariantMap offer = v.toMap();
@@ -103,10 +150,12 @@ public:
                 m_optionalPins.remove(name);
                 picked = selectedOptionalRequests({offer}, {name});
             }
+            // A kept installed release is still resolved so its required packages are listed;
+            // installs skip it as already on disk, and the gate answer leaves it out.
             optionalRequests.append(picked);
         }
         QMap<QString, QVariantMap> requests;
-        requests.insert(m_subject, QJsonDocument::fromJson(initialRequest().toUtf8()).array().first().toObject().toVariantMap());
+        requests.insert(m_subject, subjectRequest());
         for (const QVariant& v : optionalRequests) {
             const QVariantMap request = v.toMap();
             requests.insert(request.value("name").toString(), request);
@@ -121,7 +170,7 @@ public:
             requests.insert(it.key(), request);
         }
         QJsonArray arr;
-        // The subject first keeps the resolver's top-level metadata stable.
+        // The subject first: the resolver emits its closure before the optionals.
         arr.append(QJsonObject::fromVariantMap(requests.take(m_subject)));
         for (const auto& request : requests) arr.append(QJsonObject::fromVariantMap(request));
         return QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
@@ -130,13 +179,61 @@ public:
     QVariantList offers() const { return m_offers; }
     QString subject() const { return m_subject; }
     QStringList optionalNames() const { return m_optionalNames; }
+    // The selected optionals that `name` comes with, when nothing else needs it.
+    QStringList requiredFor(const QString& name) const { return m_requiredFor.value(name); }
 
 private:
+    bool isSelected(const QVariantMap& offer) const
+    {
+        if (offer.contains("error")) return false;
+        const bool byDefault = offer.contains("installedVersion") || m_selectNew;
+        return m_selection.value(offer.value("name").toString(), byDefault).toBool();
+    }
+
+    // Adds what is installed, and defaults an installed optional to that release.
+    QVariantMap annotate(QVariantMap offer) const
+    {
+        const QString name = offer.value("name").toString();
+        if (!offer.contains("installedVersion") && m_installed.contains(name)) {
+            offer.insert("installedVersion", m_installed.value(name).first);
+            offer.insert("installedRootHash", m_installed.value(name).second);
+        }
+        if (offer.contains("installedVersion") && !offer.contains("error") && !m_optionalPins.contains(name)) {
+            const QString version = offer.value("installedVersion").toString();
+            const QString hash = offer.value("installedRootHash").toString();
+            QVariantMap match;
+            for (const QVariant& v : offer.value("versions").toList()) {
+                const QVariantMap candidate = v.toMap();
+                if (candidate.value("manifest").toMap().value("version").toString() != version) continue;
+                if (match.isEmpty() || candidate.value("rootHash").toString() == hash) match = candidate;
+            }
+            if (!match.isEmpty()) {
+                offer.insert("version", version);
+                offer.insert("rootHash", match.value("rootHash"));
+                QVariantMap request = offer.value("request").toMap();
+                request.insert("version", version);
+                request.insert("rootHash", match.value("rootHash"));
+                offer.insert("request", request);
+            }
+        }
+        offer.insert("selected", isSelected(offer));
+        return offer;
+    }
+
+    QVariantMap subjectRequest() const
+    {
+        return QJsonDocument::fromJson(gateResolverRequest(m_subject, m_repository,
+            m_pins.value(m_subject).toString()).toUtf8()).array().first().toObject().toVariantMap();
+    }
+
     QString m_subject, m_repository;
+    QMap<QString, QPair<QString, QString>> m_installed;
+    bool m_selectNew = true;
     QVariantMap m_pins, m_selection, m_optionalPins;
     QMap<QString, QVariantMap> m_discovered;
     QMap<QString, QString> m_artifacts;
     QVariantList m_offers;
     QStringList m_optionalNames;
+    QMap<QString, QStringList> m_requiredFor;
 };
 } // namespace logos

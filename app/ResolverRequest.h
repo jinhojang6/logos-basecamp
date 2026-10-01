@@ -40,12 +40,14 @@ inline QVariantList selectedOptionalRequests(const QVariantList& offers,
     return requests;
 }
 
-inline QString appendOptionalRequests(const QString& depsJson, const QVariantList& requests)
+// True when `request` would reinstall the optional release already installed.
+inline bool keepsInstalledRelease(const QVariantMap& offer, const QVariantMap& request)
 {
-    QJsonArray arr = QJsonDocument::fromJson(depsJson.toUtf8()).array();
-    for (const QVariant& request : requests)
-        arr.append(QJsonObject::fromVariantMap(request.toMap()));
-    return QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
+    if (!offer.contains("installedVersion")
+        || request.value("version").toString() != offer.value("installedVersion").toString())
+        return false;
+    const QString hash = offer.value("installedRootHash").toString();
+    return hash.isEmpty() || request.value("rootHash").toString() == hash;
 }
 
 // The dependency-resolution request the INSTALL GATE sends.

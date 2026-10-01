@@ -4,6 +4,7 @@ import QtTest
 // Directory import, not `import Basecamp.Shell` — see tst_IntentInstallDialog.
 import "../../src/Basecamp/Shell"
 import Basecamp.AppManager
+import Basecamp.Backend 1.0
 
 // The install gate is a CONSENT screen: what it lists is what the user is
 // agreeing to install. It must never assert more than it knows.
@@ -43,7 +44,8 @@ TestCase {
             ] }
     }
 
-    function test_app_optional_version_picker_passes_choice_separately_from_required_pins() {
+    // The install executes the last preview, so the preview request is what carries the choice.
+    function test_app_optional_version_pick_is_previewed_separately_from_required_pins() {
         var dlg = appDialogComp.createObject(testCase)
         installSpy.target = dlg
         installSpy.clear()
@@ -59,21 +61,17 @@ TestCase {
         compare(combo.displayText, "v.0.2.0")
         compare(previewSpy.count, 1)
         compare(previewSpy.signalArguments[0][4].storage_module, "0.2.0")
+        verify(previewSpy.signalArguments[0][2].storage_module === undefined)
         compare(findChild(dlg.contentItem, "addApplicationDialog.primaryButton").enabled, false)
         dlg.metadata = Object.assign({}, dlg.metadata, {resolutionPending: false})
         mouseClick(findChild(dlg.contentItem, "addApplicationDialog.primaryButton"))
         compare(installSpy.count, 1)
-        compare(installSpy.signalArguments[0][4].storage_module, "0.2.0")
-        verify(installSpy.signalArguments[0][2].storage_module === undefined)
-        installSpy.clear()
+        compare(installSpy.signalArguments[0][0], "chat")
         waitForRendering(testCase)
         var checkbox = findChild(dlg.contentItem, "addApplicationDialog.optional.storage_module")
         mouseClick(checkbox)
         compare(checkbox.checked, false)
         compare(previewSpy.signalArguments[1][3].storage_module, false)
-        dlg.metadata = Object.assign({}, dlg.metadata, {resolutionPending: false})
-        mouseClick(findChild(dlg.contentItem, "addApplicationDialog.primaryButton"))
-        compare(installSpy.signalArguments[0][3].length, 0)
         dlg.destroy()
     }
 
@@ -104,14 +102,15 @@ TestCase {
         updated.versions = [updated.versions[0]]
         dlg.metadata = {name: "chat", selectedVersion: "0.3.0", optionalPackages: [updated]}
         tryCompare(findChild(dlg.contentItem, "packageRow.version.storage_module"), "displayText", "v.0.3.0")
-        waitForRendering(testCase)
-        mouseClick(findChild(dlg.contentItem, "addApplicationDialog.primaryButton"))
-        compare(installSpy.count, 1)
-        verify(installSpy.signalArguments[0][4].storage_module === undefined)
+        previewSpy.target = dlg
+        previewSpy.clear()
+        dlg.refreshPreview()
+        compare(previewSpy.count, 1)
+        verify(previewSpy.signalArguments[0][4].storage_module === undefined)
         dlg.destroy()
     }
 
-    function test_app_install_passes_only_checked_available_optionals() {
+    function test_app_preview_selects_only_checked_available_optionals() {
         var dlg = appDialogComp.createObject(testCase)
         verify(dlg)
         installSpy.target = dlg
@@ -135,17 +134,48 @@ TestCase {
         compare(available.checked, true)
         compare(unavailable.checked, false)
         compare(unavailable.enabled, false)
-        mouseClick(findChild(dlg.contentItem, "addApplicationDialog.primaryButton"))
-        compare(installSpy.count, 1)
-        compare(installSpy.signalArguments[0][3].length, 1)
-        compare(installSpy.signalArguments[0][3][0], "storage_module")
-        installSpy.clear()
+        previewSpy.target = dlg
+        previewSpy.clear()
         mouseClick(available)
         compare(primary.enabled, false)
+        compare(previewSpy.count, 1)
+        compare(previewSpy.signalArguments[0][3].storage_module, false)
+        verify(previewSpy.signalArguments[0][3].missing_module === undefined)
         dlg.metadata = metadata
         mouseClick(findChild(dlg.contentItem, "addApplicationDialog.primaryButton"))
         compare(installSpy.count, 1)
-        compare(installSpy.signalArguments[0][3].length, 0)
+        dlg.destroy()
+    }
+
+    function test_package_that_comes_only_with_an_optional_has_no_checkbox() {
+        var dlg = appDialogComp.createObject(testCase)
+        dlg.openWith({ name: "chat", repositoryUrl: "https://repo/", optionalPackages: [
+            { name: "rln", version: "0.10.0", action: "install" },
+            { name: "lez_rln", toVersion: "4.2.1", action: "install", optional: true,
+              requiredFor: ["rln"], description: "Required by RLN Module" }] })
+        tryVerify(function() { return !!findChild(dlg.contentItem, "addApplicationDialog.optional.rln") })
+        verify(findChild(dlg.contentItem, "addApplicationDialog.optional.rln").visible)
+        var child = findChild(dlg.contentItem, "addApplicationDialog.optional.lez_rln")
+        verify(!child || !child.visible)
+        dlg.destroy()
+    }
+
+    function test_installed_app_lists_optionals_and_installs_pending_changes() {
+        var dlg = appDialogComp.createObject(testCase)
+        var installed = { name: "storage_module", version: "0.2.0", installedVersion: "0.2.0",
+            action: "installed", selected: true }
+        var notInstalled = { name: "rln", version: "1.0.0", action: "install", selected: false }
+        var metadata = { name: "chat", repositoryUrl: "https://repo/", installStatus: InstallStatus.Installed,
+            isInstalled: true, optionalPackages: [installed, notInstalled] }
+        dlg.openWith(metadata)
+        tryVerify(function() { return !!findChild(dlg.contentItem, "addApplicationDialog.optional.rln") })
+        verify(findChild(dlg.contentItem, "addApplicationDialog.optionalPackages").visible)
+        compare(findChild(dlg.contentItem, "addApplicationDialog.optional.storage_module").checked, true)
+        compare(findChild(dlg.contentItem, "addApplicationDialog.optional.rln").checked, false)
+        var primary = findChild(dlg.contentItem, "addApplicationDialog.primaryButton")
+        compare(primary.text, "Launch")
+        dlg.metadata = Object.assign({}, metadata, {optionalChangesPending: true})
+        compare(primary.text, "Install")
         dlg.destroy()
     }
 

@@ -20,6 +20,83 @@ class OptionalDependencyPreviewTest : public QObject {
         return out;
     }
 private slots:
+    void packagesThatComeOnlyWithAnOptionalNameIt() {
+        logos::OptionalDependencyPreview preview("chat", "repo");
+        preview.advance(response({{"chat", QStringList{"delivery"}}, {"delivery", QStringList{}},
+                                  {"rln", QStringList{"lez_rln"}}}, {offer("rln", "delivery")}));
+        QCOMPARE(preview.requiredFor("lez_rln"), QStringList{"rln"});
+        QVERIFY(preview.requiredFor("delivery").isEmpty());
+        QVERIFY(preview.requiredFor("rln").isEmpty());
+    }
+    void initialRequestCarriesRequiredRowPins() {
+        logos::OptionalDependencyPreview preview("chat", "repo", {{"delivery", "0.2.0"}});
+        QCOMPARE(names(preview.initialRequest()), (QStringList{"chat", "delivery"}));
+    }
+    void reofferedSelectionSurvivesAParentVersionChange() {
+        logos::OptionalDependencyPreview preview("chat", "repo", {{"delivery", "0.2.0"}});
+        const QVariantMap graph{{"chat", QStringList{"delivery"}}};
+        auto delivery = [](QString v) { return QVariantMap{{"name", "delivery"}, {"version", v}}; };
+        const auto first = preview.advance(response(graph, {offer("rln", "delivery")}, {delivery("0.3.0")}));
+        QVERIFY(names(first).contains("rln"));
+        // The resolver keeps listing a selected optional; the parent's new version must not drop it.
+        const auto second = preview.advance(response(graph, {offer("rln", "delivery")}, {delivery("0.2.0")}));
+        QCOMPARE(names(second), names(first));
+        QCOMPARE(preview.advance(response(graph, {offer("rln", "delivery")}, {delivery("0.2.0")})), second);
+    }
+    void duplicateRowsOfOneNameDoNotDropItsOffers() {
+        logos::OptionalDependencyPreview preview("chat", "repo");
+        const QVariantMap graph{{"chat", QStringList{"d"}}};
+        const QVariantList rows{QVariantMap{{"name", "d"}, {"version", "1.0.0"}},
+                                QVariantMap{{"name", "d"}, {"version", "2.0.0"}}};
+        const auto first = preview.advance(response(graph, {offer("q", "d")}, rows));
+        QCOMPARE(preview.advance(response(graph, {offer("q", "d")}, rows)), first);
+        QCOMPARE(preview.optionalNames(), QStringList{"q"});
+    }
+    void availableOfferWinsOverAnUnavailableOneOfTheSameName() {
+        logos::OptionalDependencyPreview preview("chat", "repo");
+        auto broken = offer("o", "a_mod");
+        broken.insert("error", "no candidate");
+        preview.advance(response({{"chat", QStringList{"a_mod", "b_mod"}}}, {broken, offer("o", "b_mod")}));
+        QCOMPARE(preview.offers().size(), 1);
+        QVERIFY(!preview.offers().first().toMap().contains("error"));
+        QCOMPARE(preview.optionalNames(), QStringList{"o"});
+    }
+    static QVariantMap versioned(QString name, QString parent) {
+        auto o = offer(name, parent, "2.0.0");
+        o.insert("versions", QVariantList{
+            QVariantMap{{"manifest", QVariantMap{{"version", "2.0.0"}}}, {"rootHash", "2.0.0"}},
+            QVariantMap{{"manifest", QVariantMap{{"version", "1.0.0"}}}, {"rootHash", "1.0.0"}}});
+        return o;
+    }
+    void installedOptionalIsResolvedAtItsInstalledRelease() {
+        logos::OptionalDependencyPreview preview("chat", "repo");
+        preview.setInstalled({{"rln", {"1.0.0", "1.0.0"}}});
+        const auto next = preview.advance(response({{"chat", QStringList{"delivery"}}}, {versioned("rln", "delivery")}));
+        // Resolved so its required packages (e.g. lez_rln) are listed.
+        const auto inputs = QJsonDocument::fromJson(next.toUtf8()).array();
+        QCOMPARE(inputs.size(), 2);
+        QCOMPARE(inputs[1].toObject().value("version").toString(), QStringLiteral("1.0.0"));
+        QCOMPARE(preview.offers().size(), 1);
+        const auto shown = preview.offers().first().toMap();
+        QCOMPARE(shown.value("version").toString(), QStringLiteral("1.0.0"));
+        QCOMPARE(shown.value("installedVersion").toString(), QStringLiteral("1.0.0"));
+        QVERIFY(shown.value("selected").toBool());
+    }
+    void pickingAnotherReleaseOfAnInstalledOptionalRequestsIt() {
+        logos::OptionalDependencyPreview preview("chat", "repo", {}, {}, {{"rln", "2.0.0"}});
+        preview.setInstalled({{"rln", {"1.0.0", "1.0.0"}}});
+        const auto next = preview.advance(response({{"chat", QStringList{"delivery"}}}, {versioned("rln", "delivery")}));
+        const auto inputs = QJsonDocument::fromJson(next.toUtf8()).array();
+        QCOMPARE(inputs.size(), 2);
+        QCOMPARE(inputs[1].toObject().value("version").toString(), QStringLiteral("2.0.0"));
+    }
+    void newOptionalsCanStartUnselected() {
+        logos::OptionalDependencyPreview preview("chat", "repo");
+        preview.setSelectNew(false);
+        const auto next = preview.advance(response({{"chat", QStringList{"delivery"}}}, {offer("rln", "delivery")}));
+        QCOMPARE(names(next), QStringList{"chat"});
+        QVERIFY(!preview.offers().first().toMap().value("selected").toBool());
+    }
     void invalidatedOptionalVersionUsesTheNewCheckedDefault() {
         logos::OptionalDependencyPreview preview("chat", "repo", {}, {}, {{"rln", "0.9.0"}});
         const auto next = preview.advance(response({}, {offer("rln", "chat", "1.0.0")}));
