@@ -16,7 +16,7 @@ Dialog {
     // onCatalogInstallFailed; cleared on each (re)open.
     property string installError: ""
 
-    signal installRequested(string name, string repositoryUrl, var versionPins, var optionalNames, var optionalVersionPins)
+    signal installRequested(string name, string repositoryUrl)
     signal launchRequested(string name)
     signal versionChangeRequested(string name, string repositoryUrl, var versionPins, var optionalSelection, var optionalVersionPins)
     signal uninstallRequested(string name, string repositoryUrl)
@@ -66,6 +66,12 @@ Dialog {
         property var pickedVersions: ({})
         property var optionalSelection: ({})
         property var optionalPickedVersions: ({})
+        // The backend's default (`selected`) until the user toggles the row.
+        function isOptionalSelected(p) {
+            if (p.error || p.requiredFor) return false
+            const own = d.optionalSelection[p.name]
+            return own !== undefined ? own : p.selected !== false
+        }
         readonly property var optionalPackages: root.metadata.optionalPackages || []
         onOptionalPackagesChanged: {
             // Required-version changes resolve a new optional set. Keep a
@@ -80,12 +86,6 @@ Dialog {
                     picks[p.name] = picked
             })
             d.optionalPickedVersions = picks
-        }
-
-        function selectedOptionalNames() {
-            return d.optionalPackages.filter(function(p) {
-                return !p.error && d.optionalSelection[p.name] !== false
-            }).map(function(p) { return p.name })
         }
 
         // ── Target app derived fields ──
@@ -118,7 +118,8 @@ Dialog {
             case InstallStatus.UpgradeAvailable:   return "update"
             case InstallStatus.DowngradeAvailable: return "downgrade"
             case InstallStatus.DifferentHash:      return "reinstall"
-            case InstallStatus.Installed:          return "launch"
+            case InstallStatus.Installed:
+                return root.metadata.optionalChangesPending ? "install" : "launch"
             }
             return "install"
         }
@@ -482,9 +483,7 @@ Dialog {
                             root.close()
                             return
                         }
-                        root.installRequested(
-                            d.targetName, d.targetRepoUrl, d.buildVersionPins(), d.selectedOptionalNames(),
-                            d.optionalPickedVersions)
+                        root.installRequested(d.targetName, d.targetRepoUrl)
                     }
                     background: Rectangle {
                         radius: Theme.spacing.radiusXlarge
@@ -594,13 +593,14 @@ Dialog {
                     required property var modelData
                     width: ListView.view ? ListView.view.width : 0
                     height: d.depsRowHeight
-                    leftPadding: Theme.spacing.large
+                    // A package that comes only with an optional sits under it, without a checkbox.
+                    leftPadding: Theme.spacing.large + (modelData.requiredFor ? 24 + Theme.spacing.small : 0)
                     rightPadding: Theme.spacing.large
                     appRow: modelData
                     installing: d.installing
-                    selectable: true
+                    selectable: !modelData.requiredFor
                     selectionObjectName: "addApplicationDialog.optional." + modelData.name
-                    selected: !modelData.error && d.optionalSelection[modelData.name] !== false
+                    selected: d.isOptionalSelected(modelData)
                     selectedVersion: d.optionalPickedVersions[modelData.name] || ""
                     onSelectionToggled: function(checked) {
                         var selected = Object.assign({}, d.optionalSelection)
