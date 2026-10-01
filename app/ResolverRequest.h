@@ -6,8 +6,47 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QString>
+#include <QStringList>
 
 namespace logos {
+
+inline QVariantList selectedOptionalRequests(const QVariantList& offers,
+                                            const QStringList& names,
+                                            const QVariantMap& versionPins = {})
+{
+    QVariantList requests;
+    for (const QVariant& v : offers) {
+        const QVariantMap offer = v.toMap();
+        const QString name = offer.value("name").toString();
+        if (!names.contains(name) || offer.contains("error")) continue;
+        QVariantMap request = offer.value("request").toMap();
+        const QString picked = versionPins.value(name).toString();
+        if (!picked.isEmpty() && picked != offer.value("version").toString()) {
+            bool found = false;
+            for (const QVariant& candidate : offer.value("versions").toList()) {
+                const QVariantMap version = candidate.toMap();
+                if (!version.value("sourceAvailable", true).toBool()
+                    || version.value("manifest").toMap().value("version").toString() != picked)
+                    continue;
+                request.insert("version", picked);
+                request.insert("rootHash", version.value("rootHash"));
+                found = true;
+                break;
+            }
+            if (!found) continue;
+        }
+        requests.append(request);
+    }
+    return requests;
+}
+
+inline QString appendOptionalRequests(const QString& depsJson, const QVariantList& requests)
+{
+    QJsonArray arr = QJsonDocument::fromJson(depsJson.toUtf8()).array();
+    for (const QVariant& request : requests)
+        arr.append(QJsonObject::fromVariantMap(request.toMap()));
+    return QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
+}
 
 // The dependency-resolution request the INSTALL GATE sends.
 //
@@ -25,10 +64,8 @@ namespace logos {
 // installed-set short-circuit, which is only applied to entries the caller
 // did not name — so already-satisfied deps would be listed as changes.
 //
-// PackageCoordinator::buildResolverDepsJson does pre-expand, deliberately:
-// the App-Manager dialog pins a version per dependency and a pin only travels
-// on its own entry. That builder is right for that flow and wrong for this
-// one; reusing it here is what caused the regression.
+// OptionalDependencyPreview applies per-row pins only after discovering the
+// reachable graph; it uses this same subject-only request for its first pass.
 inline QString gateResolverRequest(const QString& name,
                                    const QString& repositoryUrl,
                                    const QString& version)
