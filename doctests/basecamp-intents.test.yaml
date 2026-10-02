@@ -154,12 +154,13 @@ sections:
 
             - name: "Open the requester"
               action: click
-              text_to_click: "Intent Requester"
+              target: "Intent Requester"
               text: "Loading the app registers its QML bridge with the shell, which is what makes it able to request anything at all."
 
             - name: "Its view is up"
               action: wait_for
-              texts: ["RESULT"]
+              # Matching is exact: the label is "RESULT " + lastResult, which starts empty.
+              texts: ["RESULT "]
               timeout: 60000
               text: "The requester renders its result line, initially empty."
 
