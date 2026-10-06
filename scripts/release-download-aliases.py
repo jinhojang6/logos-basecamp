@@ -26,8 +26,8 @@ def gh(*args: str) -> str:
 
 
 def select_sources(release: dict) -> dict[str, str]:
-    if release["draft"] or release["prerelease"]:
-        raise ValueError("Download aliases require a published full release")
+    if release["prerelease"]:
+        raise ValueError("Download aliases require a full release, not a prerelease")
     names = [asset["name"] for asset in release["assets"] if asset["state"] == "uploaded"]
     sources = {}
     for alias in ALIASES:
@@ -68,7 +68,7 @@ def digest(path: Path) -> str:
 
 
 def publish_aliases(repo: str, tag: str, release: dict, sources: dict[str, str]) -> None:
-    if release.get("immutable"):
+    if release.get("immutable") and not release["draft"]:
         raise ValueError("This release is immutable; add aliases before publication")
     existing = {asset["name"] for asset in release["assets"]}
     with tempfile.TemporaryDirectory() as directory:

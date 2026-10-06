@@ -45,12 +45,16 @@ class ReleaseDownloadAliasesTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             aliases.select_sources(release)
 
-    def test_rejects_drafts_and_prereleases(self):
-        for field in ["draft", "prerelease"]:
-            release = release_fixture()
-            release[field] = True
-            with self.assertRaises(ValueError):
-                aliases.select_sources(release)
+    def test_allows_draft_full_releases_before_publication(self):
+        release = release_fixture()
+        release["draft"] = True
+        self.assertEqual(len(aliases.select_sources(release)), 4)
+
+    def test_rejects_prereleases(self):
+        release = release_fixture()
+        release["prerelease"] = True
+        with self.assertRaises(ValueError):
+            aliases.select_sources(release)
 
     def test_uploads_identical_bytes_and_reruns_without_replacing_assets(self):
         release = release_fixture()

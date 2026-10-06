@@ -25,13 +25,19 @@ Websites can link to `https://github.com/logos-co/logos-basecamp/releases/latest
 without knowing the release version or commit. The original versioned assets
 remain available.
 
-The workflow runs for published full releases and waits up to ten minutes for
-all four binaries to finish uploading. For an existing release, run it manually
-with the release tag, for example `0.3.1`. Backfill the latest release before
-switching a website to these URLs. If the release publisher uses `GITHUB_TOKEN`,
-it must explicitly dispatch the workflow because that token's release events
-do not trigger another workflow. Immutable releases must include these copies
-before publication instead.
+For new releases, upload the versioned binaries to a draft full release, run
+the workflow manually with that tag, and publish only after all four aliases
+are present. This keeps `latest/download` links working when the latest release
+changes and also supports immutable releases. The release publishing pipeline
+can run the helper with the same tag before publication.
+
+The workflow also runs for published full releases and waits up to ten minutes
+for all four binaries to finish uploading. For an existing release, run it
+manually with the release tag, for example `0.3.1`. Backfill the latest release
+before switching a website to these URLs. If the release publisher uses
+`GITHUB_TOKEN`, it must explicitly dispatch the workflow because that token's
+release events do not trigger another workflow. Already-published immutable
+releases cannot be backfilled.
 
 To inspect the asset mapping without uploading anything:
 
